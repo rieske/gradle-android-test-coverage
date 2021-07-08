@@ -1,0 +1,97 @@
+plugins {
+    id('com.android.application') version '4.2.2'
+    // applying jacoco plugin automatically makes any Test tasks for both release and debug variants
+    // generate jacoco coverage data. This is how it has always been.
+    // With https://github.com/gradle/gradle/pull/17567 the plugin will also register variants
+    // for the code coverage data
+    id("jacoco")
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+android {
+    compileSdkVersion 30
+    defaultConfig {
+        applicationId 'org.gradle.samples'
+        minSdkVersion 16
+        targetSdkVersion 30
+        versionCode 1
+        versionName '1.0'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+    buildTypes {
+        debug {
+            // this creates code coverage reports for androidTest tests. `jacoco` plugin is not required for this to work
+            // Adds `createDebugAndroidTestCoverageReport` task. Does not register new variants.
+            testCoverageEnabled true
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+android.applicationVariants.all { variant ->
+    tasks.register("${variant.name}TestReport", JacocoReport) {
+        sourceDirectories.from(variant.sourceSets.java.srcDirs)
+        executionData.from(tasks.named("test${variant.name.capitalize()}UnitTest").map { it.jacoco.destinationFile })
+        classDirectories.from(variant.javaCompileProvider.map { it.destinationDir })
+    }
+}
+
+android.applicationVariants.all { variant ->
+    if (variant.name == 'debug') {
+        // JacocoAggregateReport is a task from https://github.com/gradle/gradle/pull/17567
+        tasks.register("aggregatedReport", JacocoAggregatedReport) {
+            // java sources and java classes for dependent projects will be resolved from `jacocoAggregation`
+            // configuration which is set to extend from `implementation` below.
+            testTaskNames = ["testDebugUnitTest", "test"]
+
+            sourceDirectories.from(variant.sourceSets.java.srcDirs) // sources of the current project
+            classDirectories.from(variant.javaCompileProvider.map { it.destinationDir }) // classes of the current project
+
+            // resolve android classes from dependencies
+            def classesResolver = configurations.create("classesResolver")
+            classesResolver.visible = false
+            classesResolver.canBeConsumed = false
+            classesResolver.canBeResolved = true
+            classesResolver.attributes {
+                it.attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage, Usage.JAVA_RUNTIME))
+                // could Gradle have an attribute(String, String) convenience method for the two lines below?
+                it.attribute(Attribute.of("com.android.build.api.attributes.VariantAttr", String), variant.name)
+                it.attribute(Attribute.of("artifactType", String), "android-classes-jar")
+            }
+            classesResolver.extendsFrom(configurations.implementation)
+            // The latter two lines would benefit from some convenience method
+            // classesResolver.resolveProjectDependenciesOnly() for example
+            classesResolver.getResolutionStrategy().getComponentSelection().all(s -> s.reject("external dependencies are excluded from code coverage report"));
+            def resolvedClasses = classesResolver.getIncoming().artifactView{ it.lenient(true) }.files
+
+            classDirectories.from(resolvedClasses)
+        }
+    }
+}
+
+configurations {
+    // with https://github.com/gradle/gradle/pull/17567 JacocoAggregateReport task aggregates
+    // the coverage data using jacocoAggregation bucket, which extends from `implementation`
+    // configuration only in the JVM ecosystem.
+    // Is it better for Gradle to always extend from `implementation` if it exists? Any plugin application order implications in this case?
+    // Or is it better to let Android plugins do this when reacting to jacoco plugin application?
+    jacocoAggregation.extendsFrom(implementation)
+}
+
+dependencies {
+    implementation project(':lib') // android library - applies jacoco plugin and has jacoco variants exposed with https://github.com/gradle/gradle/pull/17567
+    implementation project(':javalib') // java library
+    implementation 'androidx.appcompat:appcompat:1.2.0'
+    implementation 'com.google.android.material:material:1.2.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.0.4'
+    testImplementation 'junit:junit:4.13.1'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.2'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.3.0'
+}

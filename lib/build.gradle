@@ -1,0 +1,29 @@
+plugins {
+    id('com.android.library') version '4.2.2'
+    id("jacoco")
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+android {
+    compileSdkVersion 30
+    defaultConfig {
+        minSdkVersion 16
+        targetSdkVersion 30
+        versionCode 1
+        versionName '1.0'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+    buildTypes {
+        debug {
+            //testCoverageEnabled true
+        }
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.1'
+}
